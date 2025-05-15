@@ -206,55 +206,27 @@ void publish_frame(VisionaryTMiniData& dataHandler)
   header.stamp    = gNode->now();
   header.frame_id = gFrameId;
 
-  if (gPubCameraInfo->get_subscription_count() > 0)
-  {
-    publishedAnything = true;
-    publishCameraInfo(header, dataHandler);
-    // gPubCameraInfo_freq->tick(header.stamp);
-  }
-  if (gEnableDepth && gPubDepth.getNumSubscribers() > 0)
-  {
-    publishedAnything = true;
+  // publish all enabled streams unconditionally
+  publishCameraInfo(header, dataHandler);
+  if (gEnableDepth)
     publishDepth(header, dataHandler);
-    // gPubDepth_freq->tick(header.stamp);
-  }
-  if (gEnableIntensity && gPubIntensity.getNumSubscribers() > 0)
-  {
-    publishedAnything = true;
+  if (gEnableIntensity)
     publishIntensity(header, dataHandler);
-    // gPubIntensity_freq->tick(header.stamp);
-  }
-  if (gEnableStatemap && gPubStatemap.getNumSubscribers() > 0)
-  {
-    publishedAnything = true;
+  if (gEnableStatemap)
     publishStateMap(header, dataHandler);
-    // gPubStatemap_freq->tick(header.stamp);
-  }
-  if (gEnablePoints && gPubPoints->get_subscription_count() > 0)
-  {
-    publishedAnything = true;
+  if (gEnablePoints)
     publishPointCloud(header, dataHandler);
-    // gPubPoints_freq->tick(header.stamp);
-  }
 
-  if (publishedAnything)
-  {
-    gPubCameraInfo_freq->tick(header.stamp);
-    if (gEnableDepth)
-      gPubDepth_freq->tick(header.stamp);
-    if (gEnableIntensity)
-      gPubIntensity_freq->tick(header.stamp);
-    if (gEnableStatemap)
-      gPubStatemap_freq->tick(header.stamp);
-    if (gEnablePoints)
-      gPubPoints_freq->tick(header.stamp);
-  }
-  else
-  {
-    RCLCPP_DEBUG(gNode->get_logger(), "Nothing published");
-    if (gControl)
-      gControl->stopAcquisition();
-  }
+  // tick diagnostics
+  gPubCameraInfo_freq->tick(header.stamp);
+  if (gEnableDepth)
+    gPubDepth_freq->tick(header.stamp);
+  if (gEnableIntensity)
+    gPubIntensity_freq->tick(header.stamp);
+  if (gEnableStatemap)
+    gPubStatemap_freq->tick(header.stamp);
+  if (gEnablePoints)
+    gPubPoints_freq->tick(header.stamp);
 }
 
 void thr_publish_frame()
@@ -332,12 +304,20 @@ int main(int argc, char** argv)
     RCLCPP_ERROR(gNode->get_logger(), "Connection with devices control channel failed");
     return -1;
   }
+  // Configure the device to send blob data on the data channel
+  if (!gControl->getDataStreamConfig())
+  {
+    RCLCPP_ERROR(gNode->get_logger(), "Failed to configure data stream on device");
+    return -1;
+  }
   // To be sure the acquisition is currently stopped.
   gControl->stopAcquisition();
 
-  if (!pDataStream->open(remoteDeviceIp.c_str(), 2114u))
+  // open data channel on device's blob port
+  uint16_t dataPort = gControl->GetBlobPort();
+  if (!pDataStream->open(remoteDeviceIp.c_str(), dataPort))
   {
-    RCLCPP_ERROR(gNode->get_logger(), "Connection with devices data channel failed");
+    RCLCPP_ERROR(gNode->get_logger(), "Failed to open data channel on port %u", dataPort);
     return -1;
   }
 
@@ -355,6 +335,9 @@ int main(int argc, char** argv)
     gPubIntensity = it.advertise("intensity", 10);
   if (gEnableStatemap)
     gPubStatemap = it.advertise("statemap", 10);
+
+  // for T-Mini, perform single-step acquisitions via timer; do not call continuous startAcquisition
+  RCLCPP_INFO(gNode->get_logger(), "Using step-based acquisition for Visionary-T Mini");
 
   gDeviceIdent = gControl->getDeviceIdent();
 
@@ -400,6 +383,13 @@ int main(int argc, char** argv)
 
   // diagnostic updater with ROS2 timer
   auto diag_timer = gNode->create_wall_timer(std::chrono::seconds(1), [=]() { updater->force_update(); });
+  // Periodically trigger next frame on T-Mini (step acquisition) since continuous mode may not auto-stream
+  auto step_timer = gNode->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / desiredFreq)), [=]() {
+    if (gControl)
+    {
+      gControl->stepAcquisition();
+    }
+  });
 
   // start receiver thread for camera images
   std::thread rec_thr(boost::bind(&thr_receive_frame, pDataStream, pDataHandler));
