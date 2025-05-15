@@ -61,5 +61,10 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/launch
 )
 
+install(FILES launch/sick_visionary-t_mini.launch
+  DESTINATION share/${PROJECT_NAME}/launch
+  RENAME sick_visionary-t_mini.launch.xml
+)
+
 # ament package directive
 ament_package()
