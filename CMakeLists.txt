@@ -13,7 +13,6 @@ find_package(sensor_msgs REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(diagnostic_updater REQUIRED)
-find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Boost 1.41 REQUIRED COMPONENTS thread system)
@@ -21,7 +20,6 @@ find_package(Boost 1.41 REQUIRED COMPONENTS thread system)
 ### BUILD ###
 include_directories(
   include
-  ${PCL_INCLUDE_DIRS}
   sick_visionary_cpp_shared
 )
 
@@ -38,8 +36,7 @@ ament_target_dependencies(sick_visionary_t_mini_node
   image_transport
   cv_bridge
   diagnostic_updater
-  OpenCV
-  PCL)
+  OpenCV)
 # link against the local shared library built in sick_visionary_cpp_shared
 target_link_libraries(sick_visionary_t_mini_node
   sick_visionary_cpp_shared
@@ -49,8 +46,6 @@ target_link_libraries(sick_visionary_t_mini_node
 )
 
 ## skip visionary_s
-
-add_definitions(${PCL_DEFINITIONS})
 
 ### INSTALL ###
 # install executable
