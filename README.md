@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> This is a work in proress branch for a ROS2 port, currently not functional.
+
 # sick_visionary_ros
 
 ## Overview
