@@ -14,7 +14,6 @@
   <depend>image_transport</depend>
   <depend>cv_bridge</depend>
   <depend>diagnostic_updater</depend>
-  <depend>pcl</depend>
   <depend>libopencv-dev</depend>
   <export>
     <build_type>ament_cmake</build_type>
