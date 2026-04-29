@@ -1,22 +1,24 @@
 <?xml version="1.0"?>
-<package format="2">
+<package format="3">
   <name>sick_visionary_ros</name>
   <version>1.1.2</version>
   <description>Open source drivers for the SICK Visionary-S 3D camera and Visionary-T Mini 3D-ToF camera.</description>
   <license>Unlicense</license>
   <maintainer email="techsupport3dsnapshot@sick.de">SICK AG TechSupport 3D Snapshot</maintainer>
   <author email="techsupport3dsnapshot@sick.de">SICK AG TechSupport 3D Snapshot</author>
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>libpcl-all-dev</depend>
   <depend>pcl_conversions</depend>
   <depend>pcl_ros</depend>
   <depend>cv_bridge</depend>
   <depend>diagnostic_updater</depend>
   <depend>image_transport</depend>
-  <depend>roscpp</depend>
-  <depend>roslaunch</depend>
+  <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
+  <depend>libboost-thread-dev</depend>
+  <depend>libboost-system-dev</depend>
   <export>
+    <build_type>ament_cmake</build_type>
     <rosindex>
       <tags>
         <tag>SICK</tag>
