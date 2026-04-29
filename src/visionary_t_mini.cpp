@@ -4,14 +4,14 @@
 // SPDX-License-Identifier: Unlicense
 
 #include <boost/thread.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 #include <image_transport/image_transport.hpp>
-// ROS2 includes
 #include <rclcpp/rclcpp.hpp>
-#include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <std_msgs/msg/header.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+#include <std_msgs/msg/byte_multi_array.hpp>
 #include <memory>
 
 #include <diagnostic_updater/diagnostic_updater.hpp>
@@ -23,15 +23,15 @@
 
 using namespace visionary;
 
-// ROS2 global node and publishers
-static std::shared_ptr<rclcpp::Node>                                     gNode;
-static image_transport::Publisher                                        gPubDepth, gPubIntensity, gPubStatemap;
-static std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::CameraInfo>>  gPubCameraInfo;
-static std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::PointCloud2>> gPubPoints;
+std::shared_ptr<rclcpp::Node> gNode;
 
 std::shared_ptr<VisionaryControl> gControl;
 
 std::shared_ptr<VisionaryTMiniData> gDataHandler;
+
+image_transport::Publisher                                  gPubDepth, gPubIntensity, gPubStatemap;
+rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr  gPubCameraInfo;
+rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr gPubPoints;
 
 std::shared_ptr<diagnostic_updater::Updater>         updater;
 std::shared_ptr<diagnostic_updater::TopicDiagnostic> gPubDepth_freq, gPubIntensity_freq, gPubStatemap_freq;
@@ -46,11 +46,10 @@ bool         gReceive = true;
 
 int gNumSubs = 0;
 
-// no longer used
-// void diag_timer_cb(const ros::TimerEvent&)
-// {
-//   updater->update();
-// }
+void diag_timer_cb()
+{
+  updater->force_update();
+}
 
 void driver_diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat)
 {
@@ -206,27 +205,53 @@ void publish_frame(VisionaryTMiniData& dataHandler)
   header.stamp    = gNode->now();
   header.frame_id = gFrameId;
 
-  // publish all enabled streams unconditionally
-  publishCameraInfo(header, dataHandler);
-  if (gEnableDepth)
+  if (gPubCameraInfo->get_subscription_count() > 0)
+  {
+    publishedAnything = true;
+    publishCameraInfo(header, dataHandler);
+    // gPubCameraInfo_freq->tick(header.stamp);
+  }
+  if (gEnableDepth && gPubDepth.getNumSubscribers() > 0)
+  {
+    publishedAnything = true;
     publishDepth(header, dataHandler);
-  if (gEnableIntensity)
+    // gPubDepth_freq->tick(header.stamp);
+  }
+  if (gEnableIntensity && gPubIntensity.getNumSubscribers() > 0)
+  {
+    publishedAnything = true;
     publishIntensity(header, dataHandler);
-  if (gEnableStatemap)
+    // gPubIntensity_freq->tick(header.stamp);
+  }
+  if (gEnableStatemap && gPubStatemap.getNumSubscribers() > 0)
+  {
+    publishedAnything = true;
     publishStateMap(header, dataHandler);
-  if (gEnablePoints)
+    // gPubStatemap_freq->tick(header.stamp);
+  }
+  if (gEnablePoints && gPubPoints->get_subscription_count() > 0)
+  {
+    publishedAnything = true;
     publishPointCloud(header, dataHandler);
+    // gPubPoints_freq->tick(header.stamp);
+  }
 
-  // tick diagnostics
-  gPubCameraInfo_freq->tick(header.stamp);
-  if (gEnableDepth)
-    gPubDepth_freq->tick(header.stamp);
-  if (gEnableIntensity)
-    gPubIntensity_freq->tick(header.stamp);
-  if (gEnableStatemap)
-    gPubStatemap_freq->tick(header.stamp);
-  if (gEnablePoints)
-    gPubPoints_freq->tick(header.stamp);
+  if (publishedAnything)
+  {
+    gPubCameraInfo_freq->tick(header.stamp);
+    if (gEnableDepth)
+      gPubDepth_freq->tick(header.stamp);
+    if (gEnableIntensity)
+      gPubIntensity_freq->tick(header.stamp);
+    if (gEnableStatemap)
+      gPubStatemap_freq->tick(header.stamp);
+    if (gEnablePoints)
+      gPubPoints_freq->tick(header.stamp);
+  }
+  else
+  {
+    RCLCPP_DEBUG(gNode->get_logger(), "Nothing published");
+  }
 }
 
 void thr_publish_frame()
@@ -279,14 +304,14 @@ int main(int argc, char** argv)
   std::string remoteDeviceIp = "192.168.1.10";
   gFrameId                   = "camera";
 
-  // declare and get parameters
-  gNode->declare_parameter<std::string>("remote_device_ip", "192.168.1.10");
-  gNode->declare_parameter<std::string>("frame_id", "camera");
+  gNode->declare_parameter<std::string>("remote_device_ip", remoteDeviceIp);
+  gNode->declare_parameter<std::string>("frame_id", gFrameId);
   gNode->declare_parameter<bool>("enable_depth", true);
   gNode->declare_parameter<bool>("enable_intensity", true);
   gNode->declare_parameter<bool>("enable_statemap", true);
   gNode->declare_parameter<bool>("enable_points", true);
   gNode->declare_parameter<double>("desired_frequency", 15.0);
+
   gNode->get_parameter("remote_device_ip", remoteDeviceIp);
   gNode->get_parameter("frame_id", gFrameId);
   gNode->get_parameter("enable_depth", gEnableDepth);
@@ -304,7 +329,7 @@ int main(int argc, char** argv)
     RCLCPP_ERROR(gNode->get_logger(), "Connection with devices control channel failed");
     return -1;
   }
-  // Configure the device to send blob data on the data channel
+  // Tell the device to send blob data on the data channel.
   if (!gControl->getDataStreamConfig())
   {
     RCLCPP_ERROR(gNode->get_logger(), "Failed to configure data stream on device");
@@ -313,37 +338,32 @@ int main(int argc, char** argv)
   // To be sure the acquisition is currently stopped.
   gControl->stopAcquisition();
 
-  // open data channel on device's blob port
-  uint16_t dataPort = gControl->GetBlobPort();
-  if (!pDataStream->open(remoteDeviceIp.c_str(), dataPort))
+  if (!pDataStream->open(remoteDeviceIp.c_str(), 2114u))
   {
-    RCLCPP_ERROR(gNode->get_logger(), "Failed to open data channel on port %u", dataPort);
+    RCLCPP_ERROR(gNode->get_logger(), "Connection with devices data channel failed");
     return -1;
   }
 
   // TODO: add get device name and device version and print to ros info.
   RCLCPP_INFO(gNode->get_logger(), "Connected with Visionary-T Mini");
 
-  // setup publishers
+  // make me public (after init.)
   image_transport::ImageTransport it(gNode);
-  gPubCameraInfo = gNode->create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", 10);
+  gPubCameraInfo = gNode->create_publisher<sensor_msgs::msg::CameraInfo>("camera_info", 1);
   if (gEnableDepth)
-    gPubDepth = it.advertise("depth", 10);
+    gPubDepth = it.advertise("depth", 1);
   if (gEnablePoints)
-    gPubPoints = gNode->create_publisher<sensor_msgs::msg::PointCloud2>("points", 10);
+    gPubPoints = gNode->create_publisher<sensor_msgs::msg::PointCloud2>("points", 2);
   if (gEnableIntensity)
-    gPubIntensity = it.advertise("intensity", 10);
+    gPubIntensity = it.advertise("intensity", 1);
   if (gEnableStatemap)
-    gPubStatemap = it.advertise("statemap", 10);
-
-  // for T-Mini, perform single-step acquisitions via timer; do not call continuous startAcquisition
-  RCLCPP_INFO(gNode->get_logger(), "Using step-based acquisition for Visionary-T Mini");
+    gPubStatemap = it.advertise("statemap", 1);
 
   gDeviceIdent = gControl->getDeviceIdent();
 
   // diagnostics
   updater.reset(new diagnostic_updater::Updater(gNode));
-  updater->setHardwareID(gNode->get_name());
+  updater->setHardwareID(gNode->get_namespace());
   updater->add("driver", driver_diagnostics);
 
   double desiredFreq; // device max freq is 30FPS
@@ -381,22 +401,16 @@ int main(int argc, char** argv)
                                               diagnostic_updater::FrequencyStatusParam(&min_freq, &max_freq),
                                               diagnostic_updater::TimeStampStatusParam()));
 
-  // diagnostic updater with ROS2 timer
-  auto diag_timer = gNode->create_wall_timer(std::chrono::seconds(1), [=]() { updater->force_update(); });
-  // Periodically trigger next frame on T-Mini (step acquisition) since continuous mode may not auto-stream
-  auto step_timer = gNode->create_wall_timer(std::chrono::milliseconds(static_cast<int>(1000.0 / desiredFreq)), [=]() {
-    if (gControl)
-    {
-      gControl->stepAcquisition();
-    }
-  });
+  auto timer = gNode->create_wall_timer(std::chrono::seconds(1), &diag_timer_cb);
+
+  // ROS 2 has no SubscriberStatusCallback equivalent — start streaming once.
+  gControl->startAcquisition();
 
   // start receiver thread for camera images
-  std::thread rec_thr(boost::bind(&thr_receive_frame, pDataStream, pDataHandler));
+  boost::thread rec_thr(boost::bind(&thr_receive_frame, pDataStream, pDataHandler));
 
-  // spin ROS2 node
+  // wait til end of exec.
   rclcpp::spin(gNode);
-  rclcpp::shutdown();
 
   gReceive = false;
   rec_thr.join();
@@ -404,6 +418,8 @@ int main(int argc, char** argv)
   gControl->stopAcquisition();
   gControl->close();
   pDataStream->close();
+
+  rclcpp::shutdown();
 
   return 0;
 }
